@@ -22,7 +22,7 @@ rgb_lcd lcd;
 int PIXEL_PIN = D4;
 int PIXEL_COUNT = 1;
 int PIXEL_TYPE = WS2812;
-int intensity = 0;
+int intensity = 100;
 int deviceMode = WARMING_UP;
 int ledFlashOn = 0;
 
@@ -71,13 +71,7 @@ void loop() {
     // Calculate and store the next time to evaluate
     nextSensorReadTime += SENSOR_READ_TIME_DIFFERENCE;
 
-      // Print the sensor data
-    Serial.print("MQ-2 Sensor Data:\n");
-    Serial.print("Raw Value: ");
-    Serial.println(rawValue);
-    Serial.print("Voltage: ");
-    Serial.print(voltage);
-    Serial.println(" V");
+    // Print the sensor data
     Serial.print("PPM: ");
     Serial.print(ppm);
     Serial.println(" ppm");
@@ -144,5 +138,15 @@ void loop() {
 
 float readMQ3Sensor(int rawValue) {
   float voltage = (float)rawValue * 5.0 / 4095.0;
+
+  // Debug
+  Serial.print("MQ-2 Sensor Data:\n");
+  Serial.print("Raw Value: ");
+  Serial.println(rawValue);
+  Serial.print("Voltage: ");
+  Serial.print(voltage);
+  Serial.println(" V");
+  // Debug end
+
   return (voltage / 1.1) * 1000.0;
 }

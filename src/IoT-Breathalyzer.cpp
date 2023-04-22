@@ -10,6 +10,7 @@
 
 void setup();
 void loop();
+float readMQ3Sensor(int rawValue);
 #line 6 "c:/Users/alext/gitRepositories/IoT-Breathalyzer/src/IoT-Breathalyzer.ino"
 #define WARMING_UP 0
 #define IDLE 1
@@ -30,7 +31,7 @@ rgb_lcd lcd;
 int PIXEL_PIN = D4;
 int PIXEL_COUNT = 1;
 int PIXEL_TYPE = WS2812;
-int intensity = 0;
+int intensity = 100;
 int deviceMode = WARMING_UP;
 int ledFlashOn = 0;
 
@@ -74,20 +75,12 @@ void loop() {
   if(currentTime > nextSensorReadTime) {
 
     // Read the sensor data
-    int rawValue = analogRead(mq2Pin);
-    float voltage = (float)rawValue * 5.0 / 4095.0;
-    ppm = (voltage / 1.1) * 1000.0;
+    ppm = readMQ3Sensor(analogRead(mq2Pin));
 
     // Calculate and store the next time to evaluate
     nextSensorReadTime += SENSOR_READ_TIME_DIFFERENCE;
 
-      // Print the sensor data
-    Serial.print("MQ-2 Sensor Data:\n");
-    Serial.print("Raw Value: ");
-    Serial.println(rawValue);
-    Serial.print("Voltage: ");
-    Serial.print(voltage);
-    Serial.println(" V");
+    // Print the sensor data
     Serial.print("PPM: ");
     Serial.print(ppm);
     Serial.println(" ppm");
@@ -102,7 +95,6 @@ void loop() {
     lcd.print(ppm);
 
     // Control RGB LED
-
     int PixelColorRed = strip.Color(0, intensity, 0);
     int PixelColorGreen  = strip.Color(intensity,  0,  0);
     int PixelColorYellow = strip.Color(  0, intensity, intensity);
@@ -152,3 +144,75 @@ void loop() {
 
     delay(10);
 }
+
+float readMQ3Sensor(int rawValue) {
+  float voltage = (float)rawValue * 5.0 / 4095.0;
+
+  // Debug
+  Serial.print("MQ-2 Sensor Data:\n");
+  Serial.print("Raw Value: ");
+  Serial.println(rawValue);
+  Serial.print("Voltage: ");
+  Serial.print(voltage);
+  Serial.println(" V");
+  // Debug end
+
+  return (voltage / 1.1) * 1000.0;
+}
+
+
+
+
+// #include "Particle.h"
+// #include "neopixel.h"
+
+// // These lines of code should appear AFTER the #include statements, and before
+// // the setup() function.
+// // IMPORTANT: Set pixel COUNT, PIN and TYPE
+// int PIXEL_PIN = D4;
+// int PIXEL_COUNT = 3;
+// int PIXEL_TYPE = WS2811;
+// // int PIXEL_TYPE = WS2812;
+// // WS2812 NOTE: use WS2812 if you have them
+
+// Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, PIXEL_TYPE);
+
+
+// void setup() {
+//     strip.begin();
+// }
+
+
+// void loop() {
+//     /* NOTE: Two versions of the color code are specified below for WS2811 and 
+//              WS2812 neopixels. Use the version according to the type of neopixels in 
+//              your kit and delete or comment the other version. */
+//     //Setup some colors, WS2811 version
+//     int PixelColorCyan = strip.Color(   0 , 255, 255);
+//     int PixelColorRed  = strip.Color(  80,   0,   0);
+//     int PixelColorGold = strip.Color(  60,  50,   5);
+//     //Setup some colors, WS2812 version
+//     /*
+
+
+//     int PixelColorCyan = strip.Color(   255 , 0, 255);
+//     int PixelColorRed  = strip.Color(  0,   80,   0);
+//     int PixelColorGold = strip.Color(  50,  60,   5);
+//     */
+
+//     //Set first pixel to cyan
+//     strip.setPixelColor(0, PixelColorCyan);
+//     //set second pixel to red
+//     strip.setPixelColor(1, PixelColorRed);
+//     //set third pixel to Gopher Gold!
+//     strip.setPixelColor(2, PixelColorGold);
+//     strip.show();
+//     delay(1000);  //wait 1sec
+
+//     //flip the red and gold
+//     strip.setPixelColor(0, PixelColorCyan);
+//     strip.setPixelColor(1, PixelColorGold);
+//     strip.setPixelColor(2, PixelColorRed);
+//     strip.show();
+//     delay(1000);  //wait 1sec
+// }
