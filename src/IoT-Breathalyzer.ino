@@ -8,20 +8,25 @@
 #define READING 2
 #define LOW_READING 3
 #define HIGH_READING 4
-#define NUM_MODES 5
+#define INTERPRET_RESULT 5
+#define NUM_MODES 6
 
 #define SENSOR_READ_TIME_DIFFERENCE 2000
 #define WARMING_UP_LED_TIME_DIFFERENCE 1000
 #define READING_LED_TIME_DIFFERENCE 500
-
 #define WARMING_UP_MODE_TIME 20000
 
+#define PIXEL_COUNT 1
+#define PIXEL_TYPE WS2812
+
+//Pins
+#define PIXEL_PIN D4
+#define BUTTON_PIN D3
+
 rgb_lcd lcd;
+int lastButtonReading = LOW;
 
 // Neopixel varaibles
-int PIXEL_PIN = D4;
-int PIXEL_COUNT = 1;
-int PIXEL_TYPE = WS2812;
 int intensity = 100;
 int deviceMode = WARMING_UP;
 int ledFlashOn = 0;
@@ -38,19 +43,20 @@ float ppm;
 // Variable for the next time the sensor will be read
 unsigned long int nextSensorReadTime;
 unsigned long int nextLedFlashTime;
-unsigned long int exitWarmUpChangeTime;
+unsigned long int stateChangeTime;
 
 void setup() {
   // Initialize the Serial communication
   Serial.begin(9600);
 
+  pinMode(BUTTON_PIN, INPUT_PULLDOWN);
   strip.begin();
 
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
 
   deviceMode = WARMING_UP;
-  exitWarmUpChangeTime = millis() + WARMING_UP_MODE_TIME;
+  stateChangeTime = millis() + WARMING_UP_MODE_TIME;
   
   lcd.setRGB(colorR, colorG, colorB);
   
@@ -75,65 +81,83 @@ void loop() {
     Serial.print("PPM: ");
     Serial.print(ppm);
     Serial.println(" ppm");
-
-    deviceMode = (deviceMode + 1) % NUM_MODES;
   }
 
-    // set the cursor to column 0, line 1
-    // (note: line 1 is the second row, since counting begins with 0):
-    lcd.setCursor(0, 1);
-    // print the number of seconds since reset:
-    lcd.print(ppm);
+  // Check the button
+  int buttonReading = digitalRead(BUTTON_PIN);
+  if(deviceMode != READING && buttonReading == HIGH && lastButtonReading == LOW) {
+    deviceMode = READING;
+    // Mode tester: deviceMode = (deviceMode + 1) % NUM_MODES;
+    Serial.print("Button press");
+  }
+  lastButtonReading = buttonReading;
 
-    // Control RGB LED
-    int PixelColorRed = strip.Color(0, intensity, 0);
-    int PixelColorGreen  = strip.Color(intensity,  0,  0);
-    int PixelColorYellow = strip.Color(  0, intensity, intensity);
-    int PixelColorOff = strip.Color(  0,  0,  0);
+  // set the cursor to column 0, line 1
+  // (note: line 1 is the second row, since counting begins with 0):
+  lcd.setCursor(0, 1);
+  // print the number of seconds since reset:
+  lcd.print(ppm);
 
-    switch (deviceMode) {
-      case WARMING_UP:
-        if(currentTime > exitWarmUpChangeTime) {
-          deviceMode = IDLE;
-        }  
+  // Control RGB LED
+  int PixelColorRed = strip.Color(0, intensity, 0);
+  int PixelColorGreen  = strip.Color(intensity,  0,  0);
+  int PixelColorYellow = strip.Color(  intensity, intensity, 0);
+  int PixelColorOff = strip.Color(  0,  0,  0);
 
-        if(currentTime > nextLedFlashTime) {
-          ledFlashOn = !ledFlashOn;
-          nextLedFlashTime += WARMING_UP_LED_TIME_DIFFERENCE;
-        }  
+  // Device mode state machine
+  switch (deviceMode) {
+    case WARMING_UP:
+      if(currentTime > stateChangeTime) {
+        deviceMode = IDLE;
+      }  
 
-        if (ledFlashOn) {
-          strip.setPixelColor(0, PixelColorRed);
-        } else {
-          strip.setPixelColor(0, PixelColorOff);
-        }
-        break;
-      case READING:
-        if(currentTime > nextLedFlashTime) {
-          ledFlashOn = !ledFlashOn;
-          nextLedFlashTime += READING_LED_TIME_DIFFERENCE;
-        }  
+      if(currentTime > nextLedFlashTime) {
+        ledFlashOn = !ledFlashOn;
+        nextLedFlashTime += WARMING_UP_LED_TIME_DIFFERENCE;
+      }  
+      Serial.print(ledFlashOn);
 
-        if (ledFlashOn) {
-          strip.setPixelColor(0, PixelColorYellow);
-        } else {
-          strip.setPixelColor(0, PixelColorOff);
-        }
-        break;
-      case LOW_READING:
-        strip.setPixelColor(0, PixelColorGreen);
-        break;
-      case HIGH_READING:
+      if (ledFlashOn) {
         strip.setPixelColor(0, PixelColorRed);
-        break;
-      default:
+      } else {
         strip.setPixelColor(0, PixelColorOff);
-        break;
-    }
+      }
+      break;
+    case IDLE:
 
-    strip.show();
+      break;
+    case READING:
+      if(currentTime > stateChangeTime) {
+        deviceMode = INTERPRET_RESULT;
+      }  
 
-    delay(10);
+      if(currentTime > nextLedFlashTime) {
+        ledFlashOn = !ledFlashOn;
+        nextLedFlashTime += READING_LED_TIME_DIFFERENCE;
+      }  
+
+      if (ledFlashOn) {
+        strip.setPixelColor(0, PixelColorYellow);
+      } else {
+        strip.setPixelColor(0, PixelColorOff);
+      }
+      break;
+    case INTERPRET_RESULT:
+      break;
+    case LOW_READING:
+      strip.setPixelColor(0, PixelColorGreen);
+      break;
+    case HIGH_READING:
+      strip.setPixelColor(0, PixelColorRed);
+      break;
+    default:
+      strip.setPixelColor(0, PixelColorOff);
+      break;
+  }
+
+  strip.show();
+
+  delay(10);
 }
 
 float readMQ3Sensor(int rawValue) {
