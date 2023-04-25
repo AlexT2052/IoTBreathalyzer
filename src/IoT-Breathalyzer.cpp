@@ -10,7 +10,7 @@
 
 void setup();
 void loop();
-float readMQ3Sensor(int rawValue);
+float findPPM(float rawValue);
 #line 6 "c:/Users/alext/gitRepositories/IoT-Breathalyzer/src/IoT-Breathalyzer.ino"
 #define WARMING_UP 0
 #define IDLE 1
@@ -24,6 +24,7 @@ float readMQ3Sensor(int rawValue);
 #define WARMING_UP_LED_TIME_DIFFERENCE 1000
 #define READING_LED_TIME_DIFFERENCE 500
 #define WARMING_UP_MODE_TIME 20000
+#define READING_MODE_TIME 10000
 
 #define PIXEL_COUNT 1
 #define PIXEL_TYPE WS2812
@@ -70,7 +71,7 @@ void setup() {
   lcd.setRGB(colorR, colorG, colorB);
   
   // Print a message to the LCD.
-  lcd.print("PPM");
+  lcd.print("BAC");
 
   delay(100);
 }
@@ -81,7 +82,7 @@ void loop() {
   if(currentTime > nextSensorReadTime) {
 
     // Read the sensor data
-    ppm = readMQ3Sensor(analogRead(mq2Pin));
+    ppm = findPPM(analogRead(mq2Pin));
 
     // Calculate and store the next time to evaluate
     nextSensorReadTime += SENSOR_READ_TIME_DIFFERENCE;
@@ -95,12 +96,12 @@ void loop() {
   // Check the button
   int buttonReading = digitalRead(BUTTON_PIN);
   if(deviceMode != READING && buttonReading == HIGH && lastButtonReading == LOW) {
-    //deviceMode = READING;
-    deviceMode = (deviceMode + 1) % NUM_MODES;
+    deviceMode = READING;
+    stateChangeTime = millis() + READING_MODE_TIME;
+    // Mode tester: deviceMode = (deviceMode + 1) % NUM_MODES;
     Serial.print("Button press");
   }
   lastButtonReading = buttonReading;
-  // Serial.print(buttonReading);
 
   // set the cursor to column 0, line 1
   // (note: line 1 is the second row, since counting begins with 0):
@@ -133,9 +134,12 @@ void loop() {
         strip.setPixelColor(0, PixelColorOff);
       }
       break;
+    case IDLE:
+
+      break;
     case READING:
       if(currentTime > stateChangeTime) {
-        deviceMode = INTERPRET_RESULT;
+        deviceMode = LOW_READING;
       }  
 
       if(currentTime > nextLedFlashTime) {
@@ -161,14 +165,14 @@ void loop() {
       strip.setPixelColor(0, PixelColorOff);
       break;
   }
-  Serial.println(deviceMode);
+
   strip.show();
 
   delay(10);
 }
 
-float readMQ3Sensor(int rawValue) {
-  float voltage = (float)rawValue * 5.0 / 4095.0;
+float findPPM(float rawValue) {
+  float voltage = (float)rawValue * 5.0 / 1024.0;
 
   // Debug
   Serial.print("MQ-2 Sensor Data:\n");
@@ -180,4 +184,25 @@ float readMQ3Sensor(int rawValue) {
   // Debug end
 
   return (voltage / 1.1) * 1000.0;
+
+
+
+  // float sensor_volt = rawValue/1024.0*5.0;
+  // float RS = (5.0-sensor_volt)/sensor_volt; // 
+  // float R0 = RS/60.0; // 60 is found using interpolation
+  // Serial.print("R0 = ");
+  // Serial.println(R0);
+  // return R0;
+
+  // float sensor_volt = rawValue/4095*5.0;
+  // float RS_gas = (5.0-sensor_volt)/sensor_volt; // omit *RL
+
+  // /*-Replace the name "R0" with the value of R0 in the demo of First Test -*/
+  // //float R0 = RS_gas/60.0;
+  // float ratio = RS_gas/60;  // ratio = RS/R0   
+  // float BAC = 0.1896*ratio*ratio - 8.6178*ratio/10 + 1.0792;   //BAC in mg/L
+  // Serial.print("BAC = ");
+  // Serial.println(BAC*0.0001);  //convert to g/dL
+  // Serial.print("\n\n");
+  // return BAC - 1;
 }
