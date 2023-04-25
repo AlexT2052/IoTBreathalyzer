@@ -10,7 +10,7 @@
 
 void setup();
 void loop();
-float getBAC(float PPM);
+float getBAC(float rawValue);
 #line 6 "c:/Users/alext/gitRepositories/IoT-Breathalyzer/src/IoT-Breathalyzer.ino"
 enum DEVICE_MODE
 {
@@ -41,8 +41,9 @@ enum BUTTON_ACTION
 #define SENSOR_READ_TIME_DIFFERENCE 2000
 #define WARMING_UP_LED_TIME_DIFFERENCE 500
 #define READING_LED_TIME_DIFFERENCE 200
-#define WARMING_UP_MODE_TIME 20000
+#define WARMING_UP_MODE_TIME 5000
 #define READING_MODE_TIME 10000
+#define COOLDOWN_TIME 10000
 #define MS_BETWEEN_SAMPLES 20
 #define DEBOUNCE_TIME 50
 #define DOUBLE_CLICK_WAIT_TIME 500
@@ -66,7 +67,7 @@ rgb_lcd lcd;
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, PIXEL_TYPE);
 
 DEVICE_MODE deviceMode = WARMING_UP;
-DISPLAY_MODE displayMode = PPM;
+DISPLAY_MODE displayMode = BAC;
 BUTTON_ACTION buttonState = UNPRESSED;
 
 // Time Variables
@@ -85,14 +86,14 @@ const int displayBacklightB = 0;
 int intensity = 100;
 int ledFlashOn = 0;
 int lastButtonReading = LOW;
-int maxVoltage = 0;
+int maxRawValue = 0;
 int maxPPM;
 int avgPPM;
-int maxBAC;
-int avgBAC;
-int smallSampleTotal = 0;
+float maxBAC;
+float avgBAC;
+float smallSampleTotal = 0;
 int smallSampleCount = 0;
-int fullSampleTotal = 0;
+float fullSampleTotal = 0;
 int fullSampleCount = 0;
 float ppm;
 
@@ -157,7 +158,7 @@ void loop() {
   switch (deviceMode) {
     case WARMING_UP:
       static unsigned long int readingLastCalled = millis();
-      static int countdown = 20;
+      static int countdown = WARMING_UP_MODE_TIME / 1000;
       if(currentTime > stateChangeTime) {
         deviceMode = IDLE;
         lcd.clear();
@@ -178,7 +179,7 @@ void loop() {
           lcd.setCursor(15, 0);
         }
 
-        lcd.print(countdown--);
+        lcd.print(--countdown);
         readingLastCalled = millis();
       }
 
@@ -204,11 +205,11 @@ void loop() {
 
       if (currentTime > stateChangeTime) {
         deviceMode = COOLDOWN;
-        float averageVoltage = fullSampleTotal / fullSampleCount;
-        maxPPM = getPPM(maxVoltage);
-        avgPPM = getPPM(averageVoltage);
-        maxBAC = getBAC(maxVoltage);
-        avgBAC = getBAC(averageVoltage);
+        float avgRawValue = fullSampleTotal / fullSampleCount;
+        maxPPM = getPPM(maxRawValue);
+        avgPPM = getPPM(avgRawValue);
+        maxBAC = getBAC(maxRawValue);
+        avgBAC = getBAC(avgRawValue);
 
         updateDisplay();
 
@@ -234,8 +235,8 @@ void loop() {
         fullSampleCount++;
 
         // Determine if the average is the max
-        if(smallSampleAvg > maxVoltage) {
-          maxVoltage = smallSampleAvg;
+        if(smallSampleAvg > maxRawValue) {
+          maxRawValue = smallSampleAvg;
         }
 
         smallSampleTotal = 0;
@@ -251,7 +252,7 @@ void loop() {
             lcd.setCursor(15, 0);
           }
 
-          lcd.print(countdown--);
+          lcd.print(--countdown);
           readingLastCalled = millis();
         }
 
@@ -277,7 +278,7 @@ void loop() {
     } break;
     case COOLDOWN: {
       static unsigned long int cooldownLastCalled = millis();
-      static int countdown = 20;
+      static int countdown = COOLDOWN_TIME / 1000;
 
       if (countdown == 0) {
         deviceMode = IDLE;
@@ -293,7 +294,7 @@ void loop() {
           lcd.setCursor(15, 0);
         }
 
-        lcd.print(countdown--);
+        lcd.print(--countdown);
         cooldownLastCalled = millis();
       }
     } break;
@@ -323,7 +324,7 @@ float getPPM(float rawValue) {
   return voltage * 909.090909091; // 909.090909091 is 1000/1.1
 }
 
-float getBAC(float PPM) {
+float getBAC(float rawValue) {
   // float sensor_volt = rawValue/1024.0*5.0;
   // float RS = (5.0-sensor_volt)/sensor_volt; // 
   // float R0 = RS/60.0; // 60 is found using interpolation
@@ -342,7 +343,23 @@ float getBAC(float PPM) {
   // Serial.println(BAC*0.0001);  //convert to g/dL
   // Serial.print("\n\n");
   // return BAC - 1;
-  return 0; // TODO
+
+  float voltage = rawValue * 0.00122100122; // 0.00122100122 is 5/4095.0, processor is slow so need to avoid division.
+
+  // Only used to find R0
+  // float RS_gas = ((5.0 * 2000)/voltage) - 2000;
+  // float R0 = RS_gas / 60;
+
+  int R0 = 287;
+  int R2 = 2000;
+
+  float RS_gas = ((5.0 * R2)/voltage) - R2; 
+   /*-Replace the value of R0 with the value of R0 in your test -*/
+  float ratio = RS_gas/R0;// ratio = RS/R0
+  double x = 0.4*ratio;   
+  float BAC = pow(x,-1.431);  //BAC in mg/L
+
+  return BAC * 0.0001; // TODO
 }
 
 void updateDisplay() {
@@ -428,7 +445,6 @@ BUTTON_ACTION checkButton(int buttonReading) {
   return buttonReading == HIGH ? PRESSED : UNPRESSED;
 }
 
-
 // class LCDDebug
 // { 
 //     private:
@@ -441,6 +457,7 @@ BUTTON_ACTION checkButton(int buttonReading) {
 //       void print(const char* string[]);
 //       void print(int number);
 //       void print(float number);
+//       void clear();
 // } ;
 
 // void LCDDebug::setCursor(int inputCursorCol, int inputCursorRow) {
@@ -449,26 +466,30 @@ BUTTON_ACTION checkButton(int buttonReading) {
 // }
 
 // void LCDDebug::print(const char* string[]) {
-//   int num = 0;
-//   for(int i = cursorCol; i < sizeof(string); i++) {
-//     if (i < 16) {
-//       screen[cursorRow][i] = string[num++];
-//     }
-//   }
+//   // int num = 0;
+//   // for(int i = cursorCol; i < sizeof(string); i++) {
+//   //   if (i < 16) {
+//   //     screen[cursorRow][i] = string[num++];
+//   //   }
+//   // }
 
-//   for(int r = 0; r < 2; r++) {
-//     for(int c = 0; c < 16; c++) {
-//       Serial.print(screen[r][c]);
-//     }
-//     Serial.println("");
-//   }
+//   // for(int r = 0; r < 2; r++) {
+//   //   for(int c = 0; c < 16; c++) {
+//   //     Serial.print(screen[r][c]);
+//   //   }
+//   //   Serial.println("");
+//   // }
 // }
 
 // void LCDDebug::print(int number) {
-//   print(std::to_string(number).c_str());
-//   Serial.println(number);
+//   // print(std::to_string(number).c_str());
+//   // Serial.println(number);
 // }
 
 // void LCDDebug::print(float number) {
-//   Serial.println(number);
+//   // Serial.println(number);
+// }
+
+// void LCDDebug::clear() {
+
 // }
