@@ -53,7 +53,7 @@ enum BUTTON_ACTION
 //Pins
 #define PIXEL_PIN D3
 #define BUTTON_PIN D2
-#define MQ3_PIN A0
+#define MQ3_PIN A1
 
 rgb_lcd lcd;
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, PIXEL_TYPE);
