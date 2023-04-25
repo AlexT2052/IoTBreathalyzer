@@ -37,14 +37,10 @@ enum BUTTON_ACTION
 
 #define MAX_ROW 0
 #define AVG_ROW 1
-#define MAX_BAC_COL 8
-#define AVG_BAC_COL 8
-#define MAX_PPM_COL 8
-#define AVG_PPM_COL 8
 
 #define SENSOR_READ_TIME_DIFFERENCE 2000
-#define WARMING_UP_LED_TIME_DIFFERENCE 1000
-#define READING_LED_TIME_DIFFERENCE 500
+#define WARMING_UP_LED_TIME_DIFFERENCE 500
+#define READING_LED_TIME_DIFFERENCE 200
 #define WARMING_UP_MODE_TIME 20000
 #define READING_MODE_TIME 10000
 #define MS_BETWEEN_SAMPLES 20
@@ -83,9 +79,9 @@ unsigned long int nextLedFlashTime = 0;
 unsigned long int stateChangeTime = 0;
 
 // Define the pin for the MQ-2 sensor
-const int colorR = 255;
-const int colorG = 0;
-const int colorB = 0;
+const int displayBacklightR = 255;
+const int displayBacklightG = 0;
+const int displayBacklightB = 0;
 int intensity = 100;
 int ledFlashOn = 0;
 int lastButtonReading = LOW;
@@ -103,10 +99,11 @@ float ppm;
 bool watchingButton = false;
 bool recentlyFinished = false;
 
-float findPPM(float rawValue);
+float getPPM(float rawValue);
 void updateDisplay();
 void handleLED(int timeDifference, int color);
 BUTTON_ACTION checkButton(int buttonReading);
+float getBAC(float ppm);
 
 int PixelColorRed = strip.Color(0, intensity, 0);
 int PixelColorGreen  = strip.Color(intensity,  0,  0);
@@ -121,13 +118,16 @@ void setup() {
 
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
-  lcd.setRGB(colorR, colorG, colorB);
+  lcd.setRGB(displayBacklightR, displayBacklightG, displayBacklightB);
+  lcd.setCursor(0, 0);
+  lcd.print("WARMING UP...");
 
   deviceMode = WARMING_UP;
   stateChangeTime = millis() + WARMING_UP_MODE_TIME;
 
   // Particle.variable("doublePPM", double_ppm); //cloud variable declaration of double PPM value
-  //Particle.variable("averagePPM", average_ppm); //cloud variable declaration of average PPM value
+  Particle.variable("avgPPM", avgPPM); //cloud variable declaration of average PPM value
+  Particle.variable("maxPPM", maxPPM);
   //particle.function('getPPM', readMQ3SensorDOUBLE); //cloud function that returns ppm
 
   delay(100);
@@ -156,8 +156,13 @@ void loop() {
   
   switch (deviceMode) {
     case WARMING_UP:
+      static unsigned long int readingLastCalled = millis();
+      static int countdown = 20;
       if(currentTime > stateChangeTime) {
         deviceMode = IDLE;
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("READY...");
       }  
 
       if(currentTime > nextLedFlashTime) {
@@ -166,21 +171,32 @@ void loop() {
       }  
       Serial.print(ledFlashOn);
 
-      if (ledFlashOn) {
-        strip.setPixelColor(0, PixelColorRed);
-      } else {
-        strip.setPixelColor(0, PixelColorOff);
+      if (millis() - readingLastCalled > 1000) {
+        lcd.setCursor(14, 0);
+        if(countdown <= 9) {
+          lcd.print(0);
+          lcd.setCursor(15, 0);
+        }
+
+        lcd.print(countdown--);
+        readingLastCalled = millis();
       }
+
+      handleLED(WARMING_UP_LED_TIME_DIFFERENCE, PixelColorRed);
       break;
     case IDLE:
       if (buttonState == PRESSED || buttonState == HOLD) {
         deviceMode = READING;
         stateChangeTime = millis() + READING_MODE_TIME;
+        lcd.clear();
         Serial.print("Button press");
       }
 
       break;
     case READING: {
+      static unsigned long int readingLastCalled = millis();
+      static int countdown = 10;
+
       // if(!(buttonState == HOLD) || (currentTime > stateChangeTime)) {
       //   deviceMode = COOLDOWN;
       //   updateDisplay();
@@ -188,7 +204,21 @@ void loop() {
 
       if (currentTime > stateChangeTime) {
         deviceMode = COOLDOWN;
+        float averageVoltage = fullSampleTotal / fullSampleCount;
+        maxPPM = getPPM(maxVoltage);
+        avgPPM = getPPM(averageVoltage);
+        maxBAC = getBAC(maxVoltage);
+        avgBAC = getBAC(averageVoltage);
+
         updateDisplay();
+
+        if(avgPPM >= HIGH_PPM) {
+          handleLED(SOLID, PixelColorRed);
+        } else if (avgPPM >= MEDIUM_PPM) {
+          handleLED(SOLID, PixelColorYellow);
+        } else {
+          handleLED(SOLID, PixelColorGreen);
+        }
       }
 
       if (currentTime - lastSensorReadTime > MS_BETWEEN_SAMPLES) {
@@ -210,31 +240,43 @@ void loop() {
 
         smallSampleTotal = 0;
         smallSampleCount = 0;
-      }
 
-      lcd.setCursor(0, 0);
-      lcd.print("READING...");
-      lcd.setCursor(0, 1);
-      if (displayMode == PPM) {
-        // lcd.print("PPM:");
-        Serial.print("PPM: ");
-        // lcd.setCursor(4, 1);
-        float ppm = findPPM(smallSampleAvg);
-        // lcd.print(ppm);
-        Serial.println(ppm);
-      } else if (displayMode == BAC) {
-        // lcd.print("BAC:");
-        Serial.print("BAC: ");
-        // lcd.setCursor(4, 1);
-        float bac = getBAC(findPPM(smallSampleAvg));
-        // lcd.print(bac);
-        Serial.println(bac);
+        lcd.setCursor(0, 0);
+        lcd.print("READING...");
+
+        if (millis() - readingLastCalled > 1000) {
+          lcd.setCursor(14, 0);
+          if(countdown <= 9) {
+            lcd.print(0);
+            lcd.setCursor(15, 0);
+          }
+
+          lcd.print(countdown--);
+          readingLastCalled = millis();
+        }
+
+        lcd.setCursor(0, 1);
+        if (displayMode == PPM) {
+          lcd.print("PPM:");
+          Serial.print("PPM: ");
+          lcd.setCursor(4, 1);
+          float ppm = getPPM(smallSampleAvg);
+          lcd.print(ppm);
+          Serial.println(ppm);
+        } else if (displayMode == BAC) {
+          lcd.print("BAC:");
+          Serial.print("BAC: ");
+          lcd.setCursor(4, 1);
+          float bac = getBAC(getPPM(smallSampleAvg));
+          lcd.print(bac);
+          Serial.println(bac);
+        }
       }
 
       handleLED(READING_LED_TIME_DIFFERENCE, PixelColorYellow);
     } break;
     case COOLDOWN: {
-      static unsigned long int cooldownStartTime = millis();
+      static unsigned long int cooldownLastCalled = millis();
       static int countdown = 20;
 
       if (countdown == 0) {
@@ -243,20 +285,18 @@ void loop() {
 
       // lcd.setCursor(0, 0);
       // lcd.print("COOLDOWN...");
-      lcd.setCursor(13, 1);
-      if (millis() - cooldownStartTime > 1000) {
+
+      if (millis() - cooldownLastCalled > 1000) {
+        lcd.setCursor(14, 0);
+        if(countdown <= 9) {
+          lcd.print(0);
+          lcd.setCursor(15, 0);
+        }
+
         lcd.print(countdown--);
+        cooldownLastCalled = millis();
       }
-
-      if(avgPPM >= HIGH_PPM) {
-        handleLED(SOLID, PixelColorRed);
-      } else if (avgPPM >= MEDIUM_PPM) {
-        handleLED(SOLID, PixelColorYellow);
-      } else {
-        handleLED(SOLID, PixelColorGreen);
-      }
-
-      } break;
+    } break;
     default:
       handleLED(READING_LED_TIME_DIFFERENCE, PixelColorRed);
       break;
@@ -268,7 +308,7 @@ void loop() {
 
 
 
-float findPPM(float rawValue) {
+float getPPM(float rawValue) {
   float voltage = rawValue * 0.00122100122; // 0.00122100122 is 5/4095.0, processor is slow so need to avoid division.
 
   // Debug
@@ -306,27 +346,28 @@ float getBAC(float PPM) {
 }
 
 void updateDisplay() {
+  lcd.clear();
 
   if(displayMode == PPM) {
-    // lcd.setCursor(0, MAX_ROW);
-    // lcd.print("MAX PPM:");
-    // lcd.setCursor(MAX_PPM_COL, MAX_ROW);
-    // lcd.print(maxPPM);
+    lcd.setCursor(0, MAX_ROW);
+    lcd.print("MAX PPM:");
+    lcd.setCursor(8, MAX_ROW);
+    lcd.print(maxPPM);
 
-    // lcd.setCursor(1, AVG_ROW);
-    // lcd.print("AVG PPM:");
-    // lcd.setCursor(AVG_PPM_COL, AVG_ROW);
-    // lcd.print(avgPPM);
+    lcd.setCursor(0, AVG_ROW);
+    lcd.print("AVG PPM:");
+    lcd.setCursor(8, AVG_ROW);
+    lcd.print(avgPPM);
   } else {
-    // lcd.setCursor(0, MAX_ROW);
-    // lcd.print("MAX BAC:");
-    // lcd.setCursor(MAX_BAC_COL, MAX_ROW);
-    // lcd.print(maxBAC);
+    lcd.setCursor(0, MAX_ROW);
+    lcd.print("MAX BAC:");
+    lcd.setCursor(8, MAX_ROW);
+    lcd.print(maxBAC);
 
-    // lcd.setCursor(1, AVG_ROW);
-    // lcd.print("AVG BAC:");
-    // lcd.setCursor(AVG_BAC_COL, AVG_ROW);
-    // lcd.print(avgBAC);
+    lcd.setCursor(0, AVG_ROW);
+    lcd.print("AVG BAC:");
+    lcd.setCursor(8, AVG_ROW);
+    lcd.print(avgBAC);
   }
 }
 
@@ -386,3 +427,48 @@ BUTTON_ACTION checkButton(int buttonReading) {
 
   return buttonReading == HIGH ? PRESSED : UNPRESSED;
 }
+
+
+// class LCDDebug
+// { 
+//     private:
+//       int cursorCol;
+//       int cursorRow; 
+//       const char*  screen[2][16];
+//     public:
+//       void setCursor(int inputCursorCol, int inputCursorRow);
+//       void begin(int i, int c);
+//       void print(const char* string[]);
+//       void print(int number);
+//       void print(float number);
+// } ;
+
+// void LCDDebug::setCursor(int inputCursorCol, int inputCursorRow) {
+//   cursorCol = inputCursorCol;
+//   cursorRow = inputCursorRow;
+// }
+
+// void LCDDebug::print(const char* string[]) {
+//   int num = 0;
+//   for(int i = cursorCol; i < sizeof(string); i++) {
+//     if (i < 16) {
+//       screen[cursorRow][i] = string[num++];
+//     }
+//   }
+
+//   for(int r = 0; r < 2; r++) {
+//     for(int c = 0; c < 16; c++) {
+//       Serial.print(screen[r][c]);
+//     }
+//     Serial.println("");
+//   }
+// }
+
+// void LCDDebug::print(int number) {
+//   print(std::to_string(number).c_str());
+//   Serial.println(number);
+// }
+
+// void LCDDebug::print(float number) {
+//   Serial.println(number);
+// }
