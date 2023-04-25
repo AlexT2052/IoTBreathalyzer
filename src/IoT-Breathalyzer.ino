@@ -148,7 +148,7 @@ void loop() {
   switch (deviceMode) {
     case WARMING_UP:
       static unsigned long int readingLastCalled = millis();
-      static int countdown = 20;
+      static int countdown = ;
       if(currentTime > stateChangeTime) {
         deviceMode = IDLE;
         lcd.clear();
@@ -169,7 +169,7 @@ void loop() {
           lcd.setCursor(15, 0);
         }
 
-        lcd.print(countdown--);
+        lcd.print(--countdown);
         readingLastCalled = millis();
       }
 
@@ -242,7 +242,7 @@ void loop() {
             lcd.setCursor(15, 0);
           }
 
-          lcd.print(countdown--);
+          lcd.print(--countdown);
           readingLastCalled = millis();
         }
 
@@ -284,7 +284,7 @@ void loop() {
           lcd.setCursor(15, 0);
         }
 
-        lcd.print(countdown--);
+        lcd.print(--countdown);
         cooldownLastCalled = millis();
       }
     } break;
