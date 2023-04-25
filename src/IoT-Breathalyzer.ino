@@ -140,17 +140,17 @@ void loop() {
   Serial.print("Device Mode: ");
   Serial.println(deviceMode);
 
-  static unsigned long int upload_time = millis();
-  if(currentTime - upload_time > UPLOAD_PERIOD)
-  {
-    String StringMaxPPM = String(maxPPM);
-    String StringAvgPPM = String(avgPPM);
-    // publish an event with the temperature data
-    Particle.publish("PPMevent", StringMaxPPM);
-    Particle.publish("PPMevent2", StringAvgPPM);
-    // set the next upload time
-    upload_time = upload_time + UPLOAD_PERIOD;
-  }
+  // static unsigned long int upload_time = millis();
+  // if(currentTime - upload_time > UPLOAD_PERIOD)
+  // {
+  //   String StringMaxPPM = String(maxPPM);
+  //   String StringAvgPPM = String(avgPPM);
+  //   // publish an event with the temperature data
+  //   Particle.publish("PPMevent", StringMaxPPM);
+  //   Particle.publish("PPMevent2", StringAvgPPM);
+  //   // set the next upload time
+  //   upload_time = upload_time + UPLOAD_PERIOD;
+  // }
 
   // if (buttonState == DOUBLE_CLICK) {
   //       if(displayMode == PPM) {
@@ -222,6 +222,12 @@ void loop() {
         maxBAC = getBAC(maxRawValue);
         avgBAC = getBAC(avgRawValue);
 
+        String StringMaxPPM = String(maxPPM);
+        String StringAvgPPM = String(avgPPM);
+
+        Particle.publish("PPMevent", StringMaxPPM);
+        Particle.publish("PPMevent2", StringAvgPPM);
+
         updateDisplay();
 
         if(avgPPM >= HIGH_PPM) {
@@ -289,7 +295,7 @@ void loop() {
     } break;
     case COOLDOWN: {
 
-      if (countdown == 0) {
+      if (countdown2 == 0) {
         deviceMode = IDLE;
       }
 
