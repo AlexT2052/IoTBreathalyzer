@@ -48,6 +48,7 @@ enum BUTTON_ACTION
 #define DEBOUNCE_TIME 50
 #define DOUBLE_CLICK_WAIT_TIME 500
 #define RECENT_FINISH_HOLD_LED_TIME_MS 10000
+#define UPLOAD_PERIOD 1000
 #define SOLID 0
 
 #define HIGH_PPM 15000
@@ -148,6 +149,18 @@ void loop() {
   Serial.print("Device Mode: ");
   Serial.println(deviceMode);
 
+  static unsigned long int upload_time = millis();
+  if(currentTime - upload_time > UPLOAD_PERIOD)
+  {
+    String StringMaxPPM = String(maxPPM);
+    String StringAvgPPM = String(avgPPM);
+    // publish an event with the temperature data
+    Particle.publish("PPMevent", StringMaxPPM);
+    Particle.publish("PPMevent2", StringAvgPPM);
+    // set the next upload time
+    upload_time = upload_time + UPLOAD_PERIOD;
+  }
+
   // if (buttonState == DOUBLE_CLICK) {
   //       if(displayMode == PPM) {
   //         displayMode = BAC;
@@ -161,7 +174,7 @@ void loop() {
   // Device mode state machine
   
   switch (deviceMode) {
-    case WARMING_UP:
+    case WARMING_UP: {
       static unsigned long int readingLastCalled = millis();
       static int countdown = WARMING_UP_MODE_TIME / 1000;
       if(currentTime > stateChangeTime) {
@@ -189,7 +202,7 @@ void loop() {
       }
 
       handleLED(WARMING_UP_LED_TIME_DIFFERENCE, PixelColorRed);
-      break;
+      } break;
     case IDLE:
       if (buttonState == PRESSED || buttonState == HOLD) {
         deviceMode = READING;
@@ -254,12 +267,12 @@ void loop() {
 
         if (millis() - readingLastCalled > 1000) {
           lcd.setCursor(14, 0);
-          if(countdown <= 9) {
+          if(countdown1 <= 9) {
             lcd.print(0);
             lcd.setCursor(15, 0);
           }
 
-          lcd.print(--countdown);
+          lcd.print(--countdown1);
           readingLastCalled = millis();
         }
 
@@ -294,12 +307,12 @@ void loop() {
 
       if (millis() - cooldownLastCalled > 1000) {
         lcd.setCursor(14, 0);
-        if(countdown <= 9) {
+        if(countdown2 <= 9) {
           lcd.print(0);
           lcd.setCursor(15, 0);
         }
 
-        lcd.print(--countdown);
+        lcd.print(--countdown2);
         cooldownLastCalled = millis();
       }
     } break;
