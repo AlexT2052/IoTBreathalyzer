@@ -2,6 +2,52 @@
 #include "Grove_LCD_RGB_Backlight.h"
 #include "Particle.h"
 #include "neopixel.h"
+#include <iostream>
+#include <string>
+
+// class LCDDebug
+// { 
+//     private:
+//       int cursorCol;
+//       int cursorRow; 
+//       const char*  screen[2][16];
+//     public:
+//       void setCursor(int inputCursorCol, int inputCursorRow);
+//       void begin(int i, int c);
+//       void print(const char* string[]);
+//       void print(int number);
+//       void print(float number);
+// } ;
+
+// void LCDDebug::setCursor(int inputCursorCol, int inputCursorRow) {
+//   cursorCol = inputCursorCol;
+//   cursorRow = inputCursorRow;
+// }
+
+// void LCDDebug::print(const char* string[]) {
+//   int num = 0;
+//   for(int i = cursorCol; i < sizeof(string); i++) {
+//     if (i < 16) {
+//       screen[cursorRow][i] = string[num++];
+//     }
+//   }
+
+//   for(int r = 0; r < 2; r++) {
+//     for(int c = 0; c < 16; c++) {
+//       Serial.print(screen[r][c]);
+//     }
+//     Serial.println("");
+//   }
+// }
+
+// void LCDDebug::print(int number) {
+//   print(std::to_string(number).c_str());
+//   Serial.println(number);
+// }
+
+// void LCDDebug::print(float number) {
+//   Serial.println(number);
+// }
 
 enum DEVICE_MODE
 {
@@ -28,14 +74,10 @@ enum BUTTON_ACTION
 
 #define MAX_ROW 0
 #define AVG_ROW 1
-#define MAX_BAC_COL 8
-#define AVG_BAC_COL 8
-#define MAX_PPM_COL 8
-#define AVG_PPM_COL 8
 
 #define SENSOR_READ_TIME_DIFFERENCE 2000
-#define WARMING_UP_LED_TIME_DIFFERENCE 1000
-#define READING_LED_TIME_DIFFERENCE 500
+#define WARMING_UP_LED_TIME_DIFFERENCE 500
+#define READING_LED_TIME_DIFFERENCE 200
 #define WARMING_UP_MODE_TIME 20000
 #define READING_MODE_TIME 10000
 #define MS_BETWEEN_SAMPLES 20
@@ -73,9 +115,9 @@ unsigned long int nextLedFlashTime;
 unsigned long int stateChangeTime;
 
 // Define the pin for the MQ-2 sensor
-const int colorR = 255;
-const int colorG = 0;
-const int colorB = 0;
+const int displayBacklightR = 255;
+const int displayBacklightG = 0;
+const int displayBacklightB = 0;
 int intensity = 100;
 int ledFlashOn = 0;
 int lastButtonReading = LOW;
@@ -111,7 +153,7 @@ void setup() {
 
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
-  lcd.setRGB(colorR, colorG, colorB);
+  lcd.setRGB(displayBacklightR, displayBacklightG, displayBacklightB);
 
   deviceMode = WARMING_UP;
   stateChangeTime = millis() + WARMING_UP_MODE_TIME;
@@ -211,26 +253,26 @@ void loop() {
 
         smallSampleTotal = 0;
         smallSampleCount = 0;
-      }
 
-      lcd.setCursor(0, 0);
-      lcd.print("READING...");
-      lcd.setCursor(0, 1);
-      if (displayMode == PPM) {
-        lcd.print("PPM:");
-        lcd.setCursor(4, 1);
-        lcd.print(findPPM(smallSampleAvg));
-      } else if (displayMode == BAC) {
-        lcd.print("BAC:");
-        lcd.setCursor(4, 1);
-        lcd.print(getBAC(findPPM(smallSampleAvg)));
+        lcd.setCursor(0, 0);
+        lcd.print("READING...");
+        lcd.setCursor(0, 1);
+        if (displayMode == PPM) {
+          lcd.print("PPM:");
+          lcd.setCursor(4, 1);
+          lcd.print(findPPM(smallSampleAvg));
+        } else if (displayMode == BAC) {
+          lcd.print("BAC:");
+          lcd.setCursor(4, 1);
+          lcd.print(getBAC(findPPM(smallSampleAvg)));
+        }
       }
 
       handleLED(READING_LED_TIME_DIFFERENCE, PixelColorYellow);
       break;
     case COOLDOWN:
       lcd.setCursor(0, 0);
-      lcd.print("READING...");
+      lcd.print("COOLDOWN...");
       lcd.setCursor(0, 1);
       break;
     default:
@@ -285,22 +327,22 @@ void updateDisplay() {
   if(displayMode == PPM) {
     lcd.setCursor(0, MAX_ROW);
     lcd.print("MAX PPM:");
-    lcd.setCursor(MAX_PPM_COL, MAX_ROW);
+    lcd.setCursor(8, MAX_ROW);
     lcd.print(maxPPM);
 
     lcd.setCursor(1, AVG_ROW);
     lcd.print("AVG PPM:");
-    lcd.setCursor(AVG_PPM_COL, AVG_ROW);
+    lcd.setCursor(8, AVG_ROW);
     lcd.print(avgPPM);
   } else {
     lcd.setCursor(0, MAX_ROW);
     lcd.print("MAX BAC:");
-    lcd.setCursor(MAX_BAC_COL, MAX_ROW);
+    lcd.setCursor(8, MAX_ROW);
     lcd.print(maxBAC);
 
     lcd.setCursor(1, AVG_ROW);
     lcd.print("AVG BAC:");
-    lcd.setCursor(AVG_BAC_COL, AVG_ROW);
+    lcd.setCursor(8, AVG_ROW);
     lcd.print(avgBAC);
   }
 }
