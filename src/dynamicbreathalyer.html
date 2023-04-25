@@ -15,14 +15,37 @@
         <br> 
         <br> 
         <br>
-        Alcohol Level in Parts Per Million (PPM): <span id="SpanDoublePPM"></span><br>
+        Alcohol Level in Parts Per Million (PPM): <span id="SpanDoublePPM"></span><button id="connectbutton" onclick="start()">Refresh Data</button>
         <br>
-        needs work (Average Alcohol Level in Parts Per Million (PPM):)  <span id="SpanAveragePPM"></span><br>
+        <br>
+        needs work (Average Alcohol Level in Parts Per Million (PPM):)  <span id="SpanAveragePPM"></span><button id="connectbutton" onclick="start()">Refresh Data</button>
+        <br>
     </center>
 
     <script type="text/javascript">
-        var deviceID    = "430038000c47313137373239";
-        var accessToken = "53e7ba7e7918f03f3165abbd8023df5c78887113";
+        function start(objButton) {
+            var deviceID = "YOUR_DEVICE_ID_GOES_HERE";
+            var accessToken = "YOUR_ACCESS_TOKEN_GOES_HERE";
+            var baseURL = "https://api.particle.io/v1/devices/"
+            var varName = "avgPPM"; // your cloud variable name goes here
+
+
+            requestURL = baseURL + deviceID + "/" + varName + "/?access_token=" + accessToken;
+            $.getJSON(requestURL, function(json) {
+                     document.getElementById("SpanDoublePPM").innerHTML = json.result;
+                     });
+   
+            var varName = "maxPPM";  // this is another cloud variable name
+            requestURL = baseURL + deviceID + "/" + varName + "/?access_token=" + accessToken;
+            $.getJSON(requestURL, function(json) {
+                     document.getElementById("SpanAveragePPM").innerHTML = json.result;
+                     });
+        }
+    </script>
+        
+    <!-- <script type="text/javascript">
+        var deviceID    = "";
+        var accessToken = "";
         var getFunc = "getPPM";
   
         window.setInterval(function() {
@@ -31,7 +54,7 @@
                    document.getElementById("SpanDoublePPM").innerHTML = json.result;
                    });
         }, 1000);
-    </script>  
+    </script>   -->
 
     <br>
     <br>
