@@ -10,112 +10,150 @@
 
 void setup();
 void loop();
-float findPPM(float rawValue);
+float getBAC(float PPM);
 #line 6 "c:/Users/alext/gitRepositories/IoT-Breathalyzer/src/IoT-Breathalyzer.ino"
-#define WARMING_UP 0
-#define IDLE 1
-#define READING 2
-#define LOW_READING 3
-#define HIGH_READING 4
-#define INTERPRET_RESULT 5
-#define NUM_MODES 6
+enum DEVICE_MODE
+{
+  WARMING_UP  = 0,
+  IDLE,
+  READING,
+  NUM_MODES,
+  COOLDOWN
+};
+
+enum DISPLAY_MODE
+{
+  PPM,
+  BAC
+};
+
+enum BUTTON_ACTION
+{
+  UNPRESSED = 0,
+  PRESSED,
+  HOLD,
+  DOUBLE_CLICK
+};
+
+#define MAX_ROW 0
+#define AVG_ROW 1
+#define MAX_BAC_COL 8
+#define AVG_BAC_COL 8
+#define MAX_PPM_COL 8
+#define AVG_PPM_COL 8
 
 #define SENSOR_READ_TIME_DIFFERENCE 2000
 #define WARMING_UP_LED_TIME_DIFFERENCE 1000
 #define READING_LED_TIME_DIFFERENCE 500
 #define WARMING_UP_MODE_TIME 20000
 #define READING_MODE_TIME 10000
+#define MS_BETWEEN_SAMPLES 20
+#define DEBOUNCE_TIME 50
+#define DOUBLE_CLICK_WAIT_TIME 500
+#define RECENT_FINISH_HOLD_LED_TIME_MS 10000
+#define SOLID 0
+
+#define HIGH_PPM 15000
+#define MEDIUM_PPM 10000
 
 #define PIXEL_COUNT 1
 #define PIXEL_TYPE WS2812
+#define LED_INDEX 0
+#define OFF 0
 
 //Pins
 #define PIXEL_PIN D4
 #define BUTTON_PIN D3
+#define MQ3_PIN A0
 
 rgb_lcd lcd;
-int lastButtonReading = LOW;
-
-// Neopixel varaibles
-int intensity = 100;
-int deviceMode = WARMING_UP;
-int ledFlashOn = 0;
-
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, PIXEL_TYPE);
 
+DEVICE_MODE deviceMode = WARMING_UP;
+DISPLAY_MODE displayMode = PPM;
+BUTTON_ACTION buttonState = UNPRESSED;
+
+// Time Variables
+unsigned long int currentTime = 0;
+unsigned long int nextSensorReadTime = 0;
+unsigned long int lastSensorReadTime = 0;
+unsigned long int buttonHoldBeginTime = 0;
+unsigned long int debounceEndWaitTime = 0;
+unsigned long int nextLedFlashTime = 0;
+unsigned long int stateChangeTime = 0;
+
 // Define the pin for the MQ-2 sensor
-const int mq2Pin = A0;
 const int colorR = 255;
 const int colorG = 0;
 const int colorB = 0;
+int intensity = 100;
+int ledFlashOn = 0;
+int lastButtonReading = LOW;
+int maxVoltage = 0;
+int maxPPM;
+int avgPPM;
+int maxBAC;
+int avgBAC;
+int smallSampleTotal = 0;
+int smallSampleCount = 0;
+int fullSampleTotal = 0;
+int fullSampleCount = 0;
 float ppm;
 
-// Variable for the next time the sensor will be read
-unsigned long int nextSensorReadTime;
-unsigned long int nextLedFlashTime;
-unsigned long int stateChangeTime;
+bool watchingButton = false;
+bool recentlyFinished = false;
+
+float findPPM(float rawValue);
+void updateDisplay();
+void handleLED(int timeDifference, int color);
+BUTTON_ACTION checkButton(int buttonReading);
+
+int PixelColorRed = strip.Color(0, intensity, 0);
+int PixelColorGreen  = strip.Color(intensity,  0,  0);
+int PixelColorYellow = strip.Color(  intensity, intensity, 0);
+int PixelColorOff = strip.Color(  0,  0,  0);
 
 void setup() {
-  // Initialize the Serial communication
-  Serial.begin(9600);
+  Serial.begin(9600);     // Initialize the Serial communication
 
   pinMode(BUTTON_PIN, INPUT_PULLDOWN);
   strip.begin();
 
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
+  lcd.setRGB(colorR, colorG, colorB);
 
   deviceMode = WARMING_UP;
   stateChangeTime = millis() + WARMING_UP_MODE_TIME;
-  
-  lcd.setRGB(colorR, colorG, colorB);
-  
-  // Print a message to the LCD.
-  lcd.print("BAC");
+
+  // Particle.variable("doublePPM", double_ppm); //cloud variable declaration of double PPM value
+  //Particle.variable("averagePPM", average_ppm); //cloud variable declaration of average PPM value
+  //particle.function('getPPM', readMQ3SensorDOUBLE); //cloud function that returns ppm
 
   delay(100);
 }
 
 void loop() {
-  unsigned long int currentTime = millis();  // get the current time
-
-  if(currentTime > nextSensorReadTime) {
-
-    // Read the sensor data
-    ppm = findPPM(analogRead(mq2Pin));
-
-    // Calculate and store the next time to evaluate
-    nextSensorReadTime += SENSOR_READ_TIME_DIFFERENCE;
-
-    // Print the sensor data
-    Serial.print("PPM: ");
-    Serial.print(ppm);
-    Serial.println(" ppm");
-  }
+  currentTime = millis();  // get the current time
 
   // Check the button
-  int buttonReading = digitalRead(BUTTON_PIN);
-  if(deviceMode != READING && buttonReading == HIGH && lastButtonReading == LOW) {
-    deviceMode = READING;
-    stateChangeTime = millis() + READING_MODE_TIME;
-    // Mode tester: deviceMode = (deviceMode + 1) % NUM_MODES;
-    Serial.print("Button press");
-  }
-  lastButtonReading = buttonReading;
+  buttonState = checkButton(digitalRead(BUTTON_PIN));
+  Serial.println(buttonState);
+  Serial.print("Device Mode: ");
+  Serial.println(deviceMode);
 
-  // set the cursor to column 0, line 1
-  // (note: line 1 is the second row, since counting begins with 0):
-  lcd.setCursor(0, 1);
-  // print the number of seconds since reset:
-  lcd.print(ppm);
+  // if (buttonState == DOUBLE_CLICK) {
+  //       if(displayMode == PPM) {
+  //         displayMode = BAC;
+  //       } else {
+  //         displayMode = PPM;
+  //       }
+  // }
 
-  // Control RGB LED
-  int PixelColorRed = strip.Color(0, intensity, 0);
-  int PixelColorGreen  = strip.Color(intensity,  0,  0);
-  int PixelColorYellow = strip.Color(  intensity, intensity, 0);
-  int PixelColorOff = strip.Color(  0,  0,  0);
+  //static unsigned long int cooldownStartTime = 0;
 
   // Device mode state machine
+  
   switch (deviceMode) {
     case WARMING_UP:
       if(currentTime > stateChangeTime) {
@@ -135,58 +173,117 @@ void loop() {
       }
       break;
     case IDLE:
-
-      break;
-    case READING:
-      if(currentTime > stateChangeTime) {
-        deviceMode = LOW_READING;
-      }  
-
-      if(currentTime > nextLedFlashTime) {
-        ledFlashOn = !ledFlashOn;
-        nextLedFlashTime += READING_LED_TIME_DIFFERENCE;
-      }  
-
-      if (ledFlashOn) {
-        strip.setPixelColor(0, PixelColorYellow);
-      } else {
-        strip.setPixelColor(0, PixelColorOff);
+      if (buttonState == PRESSED || buttonState == HOLD) {
+        deviceMode = READING;
+        stateChangeTime = millis() + READING_MODE_TIME;
+        Serial.print("Button press");
       }
+
       break;
-    case INTERPRET_RESULT:
-      break;
-    case LOW_READING:
-      strip.setPixelColor(0, PixelColorGreen);
-      break;
-    case HIGH_READING:
-      strip.setPixelColor(0, PixelColorRed);
-      break;
+    case READING: {
+      // if(!(buttonState == HOLD) || (currentTime > stateChangeTime)) {
+      //   deviceMode = COOLDOWN;
+      //   updateDisplay();
+      // }  
+
+      if (currentTime > stateChangeTime) {
+        deviceMode = COOLDOWN;
+        updateDisplay();
+      }
+
+      if (currentTime - lastSensorReadTime > MS_BETWEEN_SAMPLES) {
+        smallSampleTotal += analogRead(MQ3_PIN);
+        smallSampleCount++;
+        lastSensorReadTime = currentTime;
+      }
+
+      int smallSampleAvg = 0;
+      if (smallSampleCount == 10) { 
+        smallSampleAvg = smallSampleTotal * 0.1;
+        fullSampleTotal += smallSampleAvg;
+        fullSampleCount++;
+
+        // Determine if the average is the max
+        if(smallSampleAvg > maxVoltage) {
+          maxVoltage = smallSampleAvg;
+        }
+
+        smallSampleTotal = 0;
+        smallSampleCount = 0;
+      }
+
+      lcd.setCursor(0, 0);
+      lcd.print("READING...");
+      lcd.setCursor(0, 1);
+      if (displayMode == PPM) {
+        // lcd.print("PPM:");
+        Serial.print("PPM: ");
+        // lcd.setCursor(4, 1);
+        float ppm = findPPM(smallSampleAvg);
+        // lcd.print(ppm);
+        Serial.println(ppm);
+      } else if (displayMode == BAC) {
+        // lcd.print("BAC:");
+        Serial.print("BAC: ");
+        // lcd.setCursor(4, 1);
+        float bac = getBAC(findPPM(smallSampleAvg));
+        // lcd.print(bac);
+        Serial.println(bac);
+      }
+
+      handleLED(READING_LED_TIME_DIFFERENCE, PixelColorYellow);
+    } break;
+    case COOLDOWN: {
+      static unsigned long int cooldownStartTime = millis();
+      static int countdown = 20;
+
+      if (countdown == 0) {
+        deviceMode = IDLE;
+      }
+
+      // lcd.setCursor(0, 0);
+      // lcd.print("COOLDOWN...");
+      lcd.setCursor(13, 1);
+      if (millis() - cooldownStartTime > 1000) {
+        lcd.print(countdown--);
+      }
+
+      if(avgPPM >= HIGH_PPM) {
+        handleLED(SOLID, PixelColorRed);
+      } else if (avgPPM >= MEDIUM_PPM) {
+        handleLED(SOLID, PixelColorYellow);
+      } else {
+        handleLED(SOLID, PixelColorGreen);
+      }
+
+      } break;
     default:
-      strip.setPixelColor(0, PixelColorOff);
+      handleLED(READING_LED_TIME_DIFFERENCE, PixelColorRed);
       break;
   }
+  
 
   strip.show();
-
-  delay(10);
 }
 
+
+
 float findPPM(float rawValue) {
-  float voltage = (float)rawValue * 5.0 / 1024.0;
+  float voltage = rawValue * 0.00122100122; // 0.00122100122 is 5/4095.0, processor is slow so need to avoid division.
 
   // Debug
-  Serial.print("MQ-2 Sensor Data:\n");
-  Serial.print("Raw Value: ");
-  Serial.println(rawValue);
-  Serial.print("Voltage: ");
-  Serial.print(voltage);
-  Serial.println(" V");
+  // Serial.print("MQ-2 Sensor Data:\n");
+  // Serial.print("Raw Value: ");
+  // Serial.println(rawValue);
+  // Serial.print("Voltage: ");
+  // Serial.print(voltage);
+  // Serial.println(" V");
   // Debug end
 
-  return (voltage / 1.1) * 1000.0;
+  return voltage * 909.090909091; // 909.090909091 is 1000/1.1
+}
 
-
-
+float getBAC(float PPM) {
   // float sensor_volt = rawValue/1024.0*5.0;
   // float RS = (5.0-sensor_volt)/sensor_volt; // 
   // float R0 = RS/60.0; // 60 is found using interpolation
@@ -205,4 +302,87 @@ float findPPM(float rawValue) {
   // Serial.println(BAC*0.0001);  //convert to g/dL
   // Serial.print("\n\n");
   // return BAC - 1;
+  return 0; // TODO
+}
+
+void updateDisplay() {
+
+  if(displayMode == PPM) {
+    // lcd.setCursor(0, MAX_ROW);
+    // lcd.print("MAX PPM:");
+    // lcd.setCursor(MAX_PPM_COL, MAX_ROW);
+    // lcd.print(maxPPM);
+
+    // lcd.setCursor(1, AVG_ROW);
+    // lcd.print("AVG PPM:");
+    // lcd.setCursor(AVG_PPM_COL, AVG_ROW);
+    // lcd.print(avgPPM);
+  } else {
+    // lcd.setCursor(0, MAX_ROW);
+    // lcd.print("MAX BAC:");
+    // lcd.setCursor(MAX_BAC_COL, MAX_ROW);
+    // lcd.print(maxBAC);
+
+    // lcd.setCursor(1, AVG_ROW);
+    // lcd.print("AVG BAC:");
+    // lcd.setCursor(AVG_BAC_COL, AVG_ROW);
+    // lcd.print(avgBAC);
+  }
+}
+
+void handleLED(int timeDifference, int color) {
+
+  if(timeDifference != SOLID) {
+    if(currentTime > nextLedFlashTime) {
+      ledFlashOn = !ledFlashOn;
+      nextLedFlashTime += READING_LED_TIME_DIFFERENCE;
+    }
+
+    if (ledFlashOn) {
+      strip.setPixelColor(LED_INDEX, color);
+    } else {
+      strip.setPixelColor(LED_INDEX, 0);
+    }
+  } else {
+    strip.setPixelColor(LED_INDEX, color);
+  }
+}
+
+// Return true if falling edge of button press
+BUTTON_ACTION checkButton(int buttonReading) {
+  // Serial.print("Reading: ");
+  // Serial.println(buttonReading);
+  if (!watchingButton && buttonReading == HIGH && lastButtonReading == LOW) {
+    buttonHoldBeginTime = millis();
+    debounceEndWaitTime += DEBOUNCE_TIME;
+    watchingButton = true;
+  }
+
+// Serial.println(watchingButton);
+// Serial.println(buttonHoldBeginTime);
+  
+  if (watchingButton) {
+    if (currentTime > debounceEndWaitTime) {
+
+      if(millis() - buttonHoldBeginTime > DOUBLE_CLICK_WAIT_TIME) {
+        if(buttonReading == HIGH){
+          lastButtonReading = buttonReading;
+          return HOLD;
+        } else if (buttonReading == LOW) {
+          watchingButton = false;
+          return UNPRESSED;
+        }
+      } else if (lastButtonReading == LOW && buttonReading == HIGH) {
+        watchingButton = false;
+        lastButtonReading = buttonReading;
+        return DOUBLE_CLICK;
+      }
+    } else {
+      return UNPRESSED;
+    }
+  } 
+
+  lastButtonReading = buttonReading;
+
+  return buttonReading == HIGH ? PRESSED : UNPRESSED;
 }

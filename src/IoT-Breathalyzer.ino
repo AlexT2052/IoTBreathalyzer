@@ -65,12 +65,13 @@ DISPLAY_MODE displayMode = PPM;
 BUTTON_ACTION buttonState = UNPRESSED;
 
 // Time Variables
-unsigned long int currentTime;
-unsigned long int nextSensorReadTime;
-unsigned long int buttonHoldBeginTime;
-unsigned long int debounceEndWaitTime;
-unsigned long int nextLedFlashTime;
-unsigned long int stateChangeTime;
+unsigned long int currentTime = 0;
+unsigned long int nextSensorReadTime = 0;
+unsigned long int lastSensorReadTime = 0;
+unsigned long int buttonHoldBeginTime = 0;
+unsigned long int debounceEndWaitTime = 0;
+unsigned long int nextLedFlashTime = 0;
+unsigned long int stateChangeTime = 0;
 
 // Define the pin for the MQ-2 sensor
 const int colorR = 255;
@@ -128,23 +129,22 @@ void loop() {
 
   // Check the button
   buttonState = checkButton(digitalRead(BUTTON_PIN));
-  Serial.print(buttonState);
+  Serial.println(buttonState);
+  Serial.print("Device Mode: ");
+  Serial.println(deviceMode);
 
-  if (buttonState == DOUBLE_CLICK) {
-        if(displayMode == PPM) {
-          displayMode = BAC;
-        } else {
-          displayMode = PPM;
-        }
-  }
+  // if (buttonState == DOUBLE_CLICK) {
+  //       if(displayMode == PPM) {
+  //         displayMode = BAC;
+  //       } else {
+  //         displayMode = PPM;
+  //       }
+  // }
 
-  // set the cursor to column 0, line 1
-  // (note: line 1 is the second row, since counting begins with 0):
-  lcd.setCursor(0, 1);
-  // print the number of seconds since reset:
-  lcd.print(ppm);
+  //static unsigned long int cooldownStartTime = 0;
 
   // Device mode state machine
+  
   switch (deviceMode) {
     case WARMING_UP:
       if(currentTime > stateChangeTime) {
@@ -170,37 +170,27 @@ void loop() {
         Serial.print("Button press");
       }
 
-      if(recentlyFinished) {
-        if(!(currentTime > stateChangeTime)) {
-          if(avgPPM >= HIGH_PPM) {
-            handleLED(SOLID, PixelColorRed);
-          } else if (avgPPM >= MEDIUM_PPM) {
-            handleLED(SOLID, PixelColorYellow);
-          } else {
-            handleLED(SOLID, PixelColorGreen);
-          }
-        } else {
-          recentlyFinished = false;
-        }
+      break;
+    case READING: {
+      // if(!(buttonState == HOLD) || (currentTime > stateChangeTime)) {
+      //   deviceMode = COOLDOWN;
+      //   updateDisplay();
+      // }  
+
+      if (currentTime > stateChangeTime) {
+        deviceMode = COOLDOWN;
+        updateDisplay();
       }
 
-      break;
-    case READING:
-      if(!(buttonState == HOLD) || (currentTime > stateChangeTime)) {
-        deviceMode = IDLE;
-        stateChangeTime = millis() + RECENT_FINISH_HOLD_LED_TIME_MS;
-        updateDisplay();
-      }  
-
-      if (currentTime > nextSensorReadTime) {
+      if (currentTime - lastSensorReadTime > MS_BETWEEN_SAMPLES) {
         smallSampleTotal += analogRead(MQ3_PIN);
-        nextSensorReadTime += MS_BETWEEN_SAMPLES;
         smallSampleCount++;
+        lastSensorReadTime = currentTime;
       }
 
       int smallSampleAvg = 0;
       if (smallSampleCount == 10) { 
-        smallSampleAvg = smallSampleTotal / smallSampleCount;
+        smallSampleAvg = smallSampleTotal * 0.1;
         fullSampleTotal += smallSampleAvg;
         fullSampleCount++;
 
@@ -218,25 +208,51 @@ void loop() {
       lcd.setCursor(0, 1);
       if (displayMode == PPM) {
         lcd.print("PPM:");
+        Serial.print("PPM: ");
         lcd.setCursor(4, 1);
-        lcd.print(findPPM(smallSampleAvg));
+        float ppm = findPPM(smallSampleAvg);
+        lcd.print(ppm);
+        Serial.println(ppm);
       } else if (displayMode == BAC) {
         lcd.print("BAC:");
+        Serial.print("BAC: ");
         lcd.setCursor(4, 1);
-        lcd.print(getBAC(findPPM(smallSampleAvg)));
+        float bac = getBAC(findPPM(smallSampleAvg));
+        lcd.print(bac);
+        Serial.println(bac);
       }
 
       handleLED(READING_LED_TIME_DIFFERENCE, PixelColorYellow);
-      break;
-    case COOLDOWN:
-      lcd.setCursor(0, 0);
-      lcd.print("READING...");
-      lcd.setCursor(0, 1);
-      break;
+    } break;
+    case COOLDOWN: {
+      static unsigned long int cooldownStartTime = millis();
+      static int countdown = 20;
+
+      if (countdown == 0) {
+        deviceMode = IDLE;
+      }
+
+      // lcd.setCursor(0, 0);
+      // lcd.print("COOLDOWN...");
+      lcd.setCursor(13, 1);
+      if (millis() - cooldownStartTime > 1000) {
+        lcd.print(countdown--);
+      }
+
+      if(avgPPM >= HIGH_PPM) {
+        handleLED(SOLID, PixelColorRed);
+      } else if (avgPPM >= MEDIUM_PPM) {
+        handleLED(SOLID, PixelColorYellow);
+      } else {
+        handleLED(SOLID, PixelColorGreen);
+      }
+
+      } break;
     default:
       handleLED(READING_LED_TIME_DIFFERENCE, PixelColorRed);
       break;
   }
+  
 
   strip.show();
 }
@@ -244,7 +260,7 @@ void loop() {
 
 
 float findPPM(float rawValue) {
-  float voltage = rawValue * 5.0 / 4095.0;
+  float voltage = rawValue * 0.00122100122; // 0.00122100122 is 5/4095.0, processor is slow so need to avoid division.
 
   // Debug
   // Serial.print("MQ-2 Sensor Data:\n");
@@ -255,7 +271,7 @@ float findPPM(float rawValue) {
   // Serial.println(" V");
   // Debug end
 
-  return (voltage / 1.1) * 1000.0;
+  return voltage * 909.090909091; // 909.090909091 is 1000/1.1
 }
 
 float getBAC(float PPM) {
@@ -325,14 +341,19 @@ void handleLED(int timeDifference, int color) {
 
 // Return true if falling edge of button press
 BUTTON_ACTION checkButton(int buttonReading) {
-  if (buttonReading == HIGH && lastButtonReading == LOW) {
+  // Serial.print("Reading: ");
+  // Serial.println(buttonReading);
+  if (!watchingButton && buttonReading == HIGH && lastButtonReading == LOW) {
     buttonHoldBeginTime = millis();
     debounceEndWaitTime += DEBOUNCE_TIME;
     watchingButton = true;
   }
+
+// Serial.println(watchingButton);
+// Serial.println(buttonHoldBeginTime);
   
   if (watchingButton) {
-    if (currentTime < debounceEndWaitTime) {
+    if (currentTime > debounceEndWaitTime) {
 
       if(millis() - buttonHoldBeginTime > DOUBLE_CLICK_WAIT_TIME) {
         if(buttonReading == HIGH){
@@ -351,6 +372,7 @@ BUTTON_ACTION checkButton(int buttonReading) {
       return UNPRESSED;
     }
   } 
+
   lastButtonReading = buttonReading;
 
   return buttonReading == HIGH ? PRESSED : UNPRESSED;
