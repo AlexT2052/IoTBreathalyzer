@@ -59,15 +59,15 @@ enum BUTTON_ACTION
 #define OFF 0
 
 //Pins
-#define PIXEL_PIN D4
-#define BUTTON_PIN D3
+#define PIXEL_PIN D3
+#define BUTTON_PIN D2
 #define MQ3_PIN A0
 
 rgb_lcd lcd;
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, PIXEL_TYPE);
 
 DEVICE_MODE deviceMode = WARMING_UP;
-DISPLAY_MODE displayMode = BAC;
+DISPLAY_MODE displayMode = PPM;
 BUTTON_ACTION buttonState = UNPRESSED;
 
 // Time Variables
@@ -96,6 +96,11 @@ int smallSampleCount = 0;
 float fullSampleTotal = 0;
 int fullSampleCount = 0;
 float ppm;
+
+unsigned long int readingLastCalled = 0;
+unsigned long int cooldownLastCalled = 0;
+int countdown1 = 0;
+int countdown2 = 0;
 
 bool watchingButton = false;
 bool recentlyFinished = false;
@@ -189,14 +194,14 @@ void loop() {
       if (buttonState == PRESSED || buttonState == HOLD) {
         deviceMode = READING;
         stateChangeTime = millis() + READING_MODE_TIME;
+        readingLastCalled = millis();
+        countdown1 = READING_MODE_TIME / 1000;
         lcd.clear();
         Serial.print("Button press");
       }
 
       break;
     case READING: {
-      static unsigned long int readingLastCalled = millis();
-      static int countdown = 10;
 
       // if(!(buttonState == HOLD) || (currentTime > stateChangeTime)) {
       //   deviceMode = COOLDOWN;
@@ -206,6 +211,8 @@ void loop() {
       if (currentTime > stateChangeTime) {
         deviceMode = COOLDOWN;
         float avgRawValue = fullSampleTotal / fullSampleCount;
+        cooldownLastCalled = millis();
+        countdown2 = COOLDOWN_TIME / 1000;
         maxPPM = getPPM(maxRawValue);
         avgPPM = getPPM(avgRawValue);
         maxBAC = getBAC(maxRawValue);
@@ -277,8 +284,6 @@ void loop() {
       handleLED(READING_LED_TIME_DIFFERENCE, PixelColorYellow);
     } break;
     case COOLDOWN: {
-      static unsigned long int cooldownLastCalled = millis();
-      static int countdown = COOLDOWN_TIME / 1000;
 
       if (countdown == 0) {
         deviceMode = IDLE;
