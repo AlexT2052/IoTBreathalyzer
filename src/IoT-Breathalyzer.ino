@@ -340,41 +340,29 @@ float getPPM(float rawValue) {
 }
 
 float getBAC(float rawValue) {
-  // float sensor_volt = rawValue/1024.0*5.0;
-  // float RS = (5.0-sensor_volt)/sensor_volt; // 
-  // float R0 = RS/60.0; // 60 is found using interpolation
-  // Serial.print("R0 = ");
-  // Serial.println(R0);
-  // return R0;
-
-  // float sensor_volt = rawValue/4095*5.0;
-  // float RS_gas = (5.0-sensor_volt)/sensor_volt; // omit *RL
-
-  // /*-Replace the name "R0" with the value of R0 in the demo of First Test -*/
-  // //float R0 = RS_gas/60.0;
-  // float ratio = RS_gas/60;  // ratio = RS/R0   
-  // float BAC = 0.1896*ratio*ratio - 8.6178*ratio/10 + 1.0792;   //BAC in mg/L
-  // Serial.print("BAC = ");
-  // Serial.println(BAC*0.0001);  //convert to g/dL
-  // Serial.print("\n\n");
-  // return BAC - 1;
-
-  float voltage = rawValue * 0.00122100122; // 0.00122100122 is 5/4095.0, processor is slow so need to avoid division.
-
   // Only used to find R0
   // float RS_gas = ((5.0 * 2000)/voltage) - 2000;
   // float R0 = RS_gas / 60;
 
-  int R0 = 287;
-  int R2 = 2000;
+  float voltage = rawValue * 0.00122100122; // 0.00122100122 is 5/4095.0, processor is slow so need to avoid division.
 
-  float RS_gas = ((5.0 * R2)/voltage) - R2; 
-   /*-Replace the value of R0 with the value of R0 in your test -*/
-  float ratio = RS_gas/R0;// ratio = RS/R0
-  double x = 0.4*ratio;   
-  float BAC = pow(x,-1.431);  //BAC in mg/L
+  float ppm = voltage * 909.090909091;
 
-  return BAC * 0.0001; // TODO
+  return ppm / 4600.0;
+
+
+
+
+  // int R0 = 287;
+  // int R2 = 2000;
+
+  // float RS_gas = ((5.0 * R2)/voltage) - R2; 
+  //  /*-Replace the value of R0 with the value of R0 in your test -*/
+  // float ratio = RS_gas/R0;// ratio = RS/R0
+  // double x = 0.4*ratio;   
+  // float BAC = pow(x,-1.431);  //BAC in mg/L
+
+  // return BAC * 0.0001; // TODO
 }
 
 void updateDisplay() {
