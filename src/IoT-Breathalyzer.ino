@@ -26,6 +26,8 @@ enum BUTTON_ACTION
   DOUBLE_CLICK
 };
 
+// #define LINEAR_BAC_CALC
+
 #define MAX_ROW 0
 #define AVG_ROW 1
 
@@ -70,8 +72,9 @@ unsigned long int buttonHoldBeginTime = 0;
 unsigned long int debounceEndWaitTime = 0;
 unsigned long int nextLedFlashTime = 0;
 unsigned long int stateChangeTime = 0;
+unsigned long int readingLastCalled = 0;
+unsigned long int cooldownLastCalled = 0;
 
-// Define the pin for the MQ-2 sensor
 const int displayBacklightR = 255;
 const int displayBacklightG = 0;
 const int displayBacklightB = 0;
@@ -79,29 +82,26 @@ int intensity = 100;
 int ledFlashOn = 0;
 int lastButtonReading = LOW;
 int maxRawValue = 0;
-int maxPPM;
-int avgPPM;
-float maxBAC;
-float avgBAC;
-float smallSampleTotal = 0;
+int maxPPM = 0;
+int avgPPM = 0;
 int smallSampleCount = 0;
-float fullSampleTotal = 0;
 int fullSampleCount = 0;
-float ppm;
-
-unsigned long int readingLastCalled = 0;
-unsigned long int cooldownLastCalled = 0;
 int countdown1 = 0;
 int countdown2 = 0;
-
+float maxBAC = 0;
+float avgBAC = 0;
+float smallSampleTotal = 0;
+float fullSampleTotal = 0;
+float ppm = 0;
+float baseLinePPM = 0;
 bool watchingButton = false;
 bool recentlyFinished = false;
 
-float getPPM(float rawValue);
+float calculatePPM(float rawValue);
 void updateDisplay();
 void handleLED(int timeDifference, int color);
 BUTTON_ACTION checkButton(int buttonReading);
-float getBAC(float ppm);
+float calculateBAC(float ppm);
 
 int PixelColorRed = strip.Color(0, intensity, 0);
 int PixelColorGreen  = strip.Color(intensity,  0,  0);
@@ -109,12 +109,12 @@ int PixelColorYellow = strip.Color(  intensity, intensity, 0);
 int PixelColorOff = strip.Color(  0,  0,  0);
 
 void setup() {
-  Serial.begin(9600);     // Initialize the Serial communication
+  Serial.begin(9600);     // Initialize Serial communication
 
-  pinMode(BUTTON_PIN, INPUT_PULLDOWN);
-  strip.begin();
+  pinMode(BUTTON_PIN, INPUT_PULLDOWN); // Setup button input
+  strip.begin(); // Begin LED management
 
-  // set up the LCD's number of columns and rows:
+  // LCD Setup:
   lcd.begin(16, 2);
   lcd.setRGB(displayBacklightR, displayBacklightG, displayBacklightB);
   lcd.setCursor(0, 0);
@@ -123,49 +123,27 @@ void setup() {
   deviceMode = WARMING_UP;
   stateChangeTime = millis() + WARMING_UP_MODE_TIME;
 
-  // Particle.variable("doublePPM", double_ppm); //cloud variable declaration of double PPM value
+  // Declare cloud virables
   Particle.variable("avgPPM", avgPPM); //cloud variable declaration of average PPM value
   Particle.variable("maxPPM", maxPPM);
-  //particle.function('getPPM', readMQ3SensorDOUBLE); //cloud function that returns ppm
 
+  // Get baseline of PPM
+  baseLinePPM = calculatePPM(analogRead(MQ3_PIN));
+
+  // Wait a bit
   delay(100);
 }
 
 void loop() {
-  currentTime = millis();  // get the current time
+  currentTime = millis();  // Get the current time and use it when we don't want the tick to change while we're just processing things
 
   // Check the button
   buttonState = checkButton(digitalRead(BUTTON_PIN));
-  Serial.println(buttonState);
-  Serial.print("Device Mode: ");
-  Serial.println(deviceMode);
-
-  // static unsigned long int upload_time = millis();
-  // if(currentTime - upload_time > UPLOAD_PERIOD)
-  // {
-  //   String StringMaxPPM = String(maxPPM);
-  //   String StringAvgPPM = String(avgPPM);
-  //   // publish an event with the temperature data
-  //   Particle.publish("PPMevent", StringMaxPPM);
-  //   Particle.publish("PPMevent2", StringAvgPPM);
-  //   // set the next upload time
-  //   upload_time = upload_time + UPLOAD_PERIOD;
-  // }
-
-  // if (buttonState == DOUBLE_CLICK) {
-  //       if(displayMode == PPM) {
-  //         displayMode = BAC;
-  //       } else {
-  //         displayMode = PPM;
-  //       }
-  // }
-
-  //static unsigned long int cooldownStartTime = 0;
 
   // Device mode state machine
-  
   switch (deviceMode) {
     case WARMING_UP: {
+      // Wait, flash the led red, and count down how long we have to wait while warming up the mq3 sensor
       static unsigned long int readingLastCalled = millis();
       static int countdown = WARMING_UP_MODE_TIME / 1000;
       if(currentTime > stateChangeTime) {
@@ -195,6 +173,7 @@ void loop() {
       handleLED(WARMING_UP_LED_TIME_DIFFERENCE, PixelColorRed);
       } break;
     case IDLE:
+      // Mode when nothing is happening and we're just waiting for a button press
       if (buttonState == PRESSED || buttonState == HOLD) {
         deviceMode = READING;
         stateChangeTime = millis() + READING_MODE_TIME;
@@ -206,21 +185,19 @@ void loop() {
 
       break;
     case READING: {
-
-      // if(!(buttonState == HOLD) || (currentTime > stateChangeTime)) {
-      //   deviceMode = COOLDOWN;
-      //   updateDisplay();
-      // }  
-
+      // Button has been pressed and we're now reading
+      // While we wait for the time to elapse, collect many samples
+      // and do plenty of averaging to get an accurate value, as well as check for the max value.
+      // Also occasionally show the current value to the user
       if (currentTime > stateChangeTime) {
         deviceMode = COOLDOWN;
         float avgRawValue = fullSampleTotal / fullSampleCount;
         cooldownLastCalled = millis();
         countdown2 = COOLDOWN_TIME / 1000;
-        maxPPM = getPPM(maxRawValue);
-        avgPPM = getPPM(avgRawValue);
-        maxBAC = getBAC(maxRawValue);
-        avgBAC = getBAC(avgRawValue);
+        maxPPM = calculatePPM(maxRawValue);
+        avgPPM = calculatePPM(avgRawValue);
+        maxBAC = calculateBAC(maxRawValue);
+        avgBAC = calculateBAC(avgRawValue);
 
         String StringMaxPPM = String(maxPPM);
         String StringAvgPPM = String(avgPPM);
@@ -278,14 +255,14 @@ void loop() {
           lcd.print("PPM:");
           Serial.print("PPM: ");
           lcd.setCursor(4, 1);
-          float ppm = getPPM(smallSampleAvg);
+          float ppm = calculatePPM(smallSampleAvg);
           lcd.print(ppm);
           Serial.println(ppm);
         } else if (displayMode == BAC) {
           lcd.print("BAC:");
           Serial.print("BAC: ");
           lcd.setCursor(4, 1);
-          float bac = getBAC(getPPM(smallSampleAvg));
+          float bac = calculateBAC(calculatePPM(smallSampleAvg));
           lcd.print(bac);
           Serial.println(bac);
         }
@@ -294,13 +271,10 @@ void loop() {
       handleLED(READING_LED_TIME_DIFFERENCE, PixelColorYellow);
     } break;
     case COOLDOWN: {
-
+      // Wait and countdown until cooldown time as elapsed
       if (countdown2 == 0) {
         deviceMode = IDLE;
       }
-
-      // lcd.setCursor(0, 0);
-      // lcd.print("COOLDOWN...");
 
       if (millis() - cooldownLastCalled > 1000) {
         lcd.setCursor(14, 0);
@@ -314,57 +288,43 @@ void loop() {
       }
     } break;
     default:
+      // We somehow aren't in a valid mode. Indicate something is wrong.
       handleLED(READING_LED_TIME_DIFFERENCE, PixelColorRed);
       break;
   }
-  
 
   strip.show();
 }
 
 
 
-float getPPM(float rawValue) {
+float calculatePPM(float rawValue) {
   float voltage = rawValue * 0.00122100122; // 0.00122100122 is 5/4095.0, processor is slow so need to avoid division.
-
-  // Debug
-  // Serial.print("MQ-2 Sensor Data:\n");
-  // Serial.print("Raw Value: ");
-  // Serial.println(rawValue);
-  // Serial.print("Voltage: ");
-  // Serial.print(voltage);
-  // Serial.println(" V");
-  // Debug end
-
   return voltage * 909.090909091; // 909.090909091 is 1000/1.1
 }
 
-float getBAC(float rawValue) {
-  // Only used to find R0
-  // float RS_gas = ((5.0 * 2000)/voltage) - 2000;
-  // float R0 = RS_gas / 60;
-
+float calculateBAC(float rawValue) {
   float voltage = rawValue * 0.00122100122; // 0.00122100122 is 5/4095.0, processor is slow so need to avoid division.
 
+#ifdef LINEAR_BAC_CALC
   float ppm = voltage * 909.090909091;
 
-  return ppm / 4600.0;
+  return (ppm - baseLinePPM) / 4600.0;
+#else
+  int R0 = 287; // Calculated from doing RS_gas / 60 during one test
+  int R2 = 2000;
 
+  float RS_gas = ((5.0 * R2)/voltage) - R2; 
+   /*-Replace the value of R0 with the value of R0 in your test -*/
+  float ratio = RS_gas/R0;// ratio = RS/R0
+  double x = 0.4*ratio;   
+  float BAC = pow(x,-1.431);  //BAC in mg/L
 
-
-
-  // int R0 = 287;
-  // int R2 = 2000;
-
-  // float RS_gas = ((5.0 * R2)/voltage) - R2; 
-  //  /*-Replace the value of R0 with the value of R0 in your test -*/
-  // float ratio = RS_gas/R0;// ratio = RS/R0
-  // double x = 0.4*ratio;   
-  // float BAC = pow(x,-1.431);  //BAC in mg/L
-
-  // return BAC * 0.0001; // TODO
+  return BAC * 0.0001;
+#endif
 }
 
+// Method to update the display with Max and avg ppm or bac values
 void updateDisplay() {
   lcd.clear();
 
@@ -391,6 +351,7 @@ void updateDisplay() {
   }
 }
 
+// LED control function using a desired color and time between flashes
 void handleLED(int timeDifference, int color) {
 
   if(timeDifference != SOLID) {
@@ -409,18 +370,13 @@ void handleLED(int timeDifference, int color) {
   }
 }
 
-// Return true if falling edge of button press
+// Function to check if the button is currently being held, double clicked or single clicked, and handle debouncing - custom made
 BUTTON_ACTION checkButton(int buttonReading) {
-  // Serial.print("Reading: ");
-  // Serial.println(buttonReading);
   if (!watchingButton && buttonReading == HIGH && lastButtonReading == LOW) {
     buttonHoldBeginTime = millis();
     debounceEndWaitTime += DEBOUNCE_TIME;
     watchingButton = true;
   }
-
-// Serial.println(watchingButton);
-// Serial.println(buttonHoldBeginTime);
   
   if (watchingButton) {
     if (currentTime > debounceEndWaitTime) {
@@ -447,52 +403,3 @@ BUTTON_ACTION checkButton(int buttonReading) {
 
   return buttonReading == HIGH ? PRESSED : UNPRESSED;
 }
-
-// class LCDDebug
-// { 
-//     private:
-//       int cursorCol;
-//       int cursorRow; 
-//       const char*  screen[2][16];
-//     public:
-//       void setCursor(int inputCursorCol, int inputCursorRow);
-//       void begin(int i, int c);
-//       void print(const char* string[]);
-//       void print(int number);
-//       void print(float number);
-//       void clear();
-// } ;
-
-// void LCDDebug::setCursor(int inputCursorCol, int inputCursorRow) {
-//   cursorCol = inputCursorCol;
-//   cursorRow = inputCursorRow;
-// }
-
-// void LCDDebug::print(const char* string[]) {
-//   // int num = 0;
-//   // for(int i = cursorCol; i < sizeof(string); i++) {
-//   //   if (i < 16) {
-//   //     screen[cursorRow][i] = string[num++];
-//   //   }
-//   // }
-
-//   // for(int r = 0; r < 2; r++) {
-//   //   for(int c = 0; c < 16; c++) {
-//   //     Serial.print(screen[r][c]);
-//   //   }
-//   //   Serial.println("");
-//   // }
-// }
-
-// void LCDDebug::print(int number) {
-//   // print(std::to_string(number).c_str());
-//   // Serial.println(number);
-// }
-
-// void LCDDebug::print(float number) {
-//   // Serial.println(number);
-// }
-
-// void LCDDebug::clear() {
-
-// }

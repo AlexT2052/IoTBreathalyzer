@@ -10,7 +10,7 @@
 
 void setup();
 void loop();
-float getBAC(float rawValue);
+float calculateBAC(float rawValue);
 #line 6 "c:/Users/alext/gitRepositories/IoT-Breathalyzer/src/IoT-Breathalyzer.ino"
 enum DEVICE_MODE
 {
@@ -106,11 +106,11 @@ int countdown2 = 0;
 bool watchingButton = false;
 bool recentlyFinished = false;
 
-float getPPM(float rawValue);
+float calculatePPM(float rawValue);
 void updateDisplay();
 void handleLED(int timeDifference, int color);
 BUTTON_ACTION checkButton(int buttonReading);
-float getBAC(float ppm);
+float calculateBAC(float ppm);
 
 int PixelColorRed = strip.Color(0, intensity, 0);
 int PixelColorGreen  = strip.Color(intensity,  0,  0);
@@ -226,10 +226,10 @@ void loop() {
         float avgRawValue = fullSampleTotal / fullSampleCount;
         cooldownLastCalled = millis();
         countdown2 = COOLDOWN_TIME / 1000;
-        maxPPM = getPPM(maxRawValue);
-        avgPPM = getPPM(avgRawValue);
-        maxBAC = getBAC(maxRawValue);
-        avgBAC = getBAC(avgRawValue);
+        maxPPM = calculatePPM(maxRawValue);
+        avgPPM = calculatePPM(avgRawValue);
+        maxBAC = calculateBAC(maxRawValue);
+        avgBAC = calculateBAC(avgRawValue);
 
         String StringMaxPPM = String(maxPPM);
         String StringAvgPPM = String(avgPPM);
@@ -287,14 +287,14 @@ void loop() {
           lcd.print("PPM:");
           Serial.print("PPM: ");
           lcd.setCursor(4, 1);
-          float ppm = getPPM(smallSampleAvg);
+          float ppm = calculatePPM(smallSampleAvg);
           lcd.print(ppm);
           Serial.println(ppm);
         } else if (displayMode == BAC) {
           lcd.print("BAC:");
           Serial.print("BAC: ");
           lcd.setCursor(4, 1);
-          float bac = getBAC(getPPM(smallSampleAvg));
+          float bac = calculateBAC(calculatePPM(smallSampleAvg));
           lcd.print(bac);
           Serial.println(bac);
         }
@@ -333,7 +333,7 @@ void loop() {
 
 
 
-float getPPM(float rawValue) {
+float calculatePPM(float rawValue) {
   float voltage = rawValue * 0.00122100122; // 0.00122100122 is 5/4095.0, processor is slow so need to avoid division.
 
   // Debug
@@ -348,7 +348,7 @@ float getPPM(float rawValue) {
   return voltage * 909.090909091; // 909.090909091 is 1000/1.1
 }
 
-float getBAC(float rawValue) {
+float calculateBAC(float rawValue) {
   // Only used to find R0
   // float RS_gas = ((5.0 * 2000)/voltage) - 2000;
   // float R0 = RS_gas / 60;
